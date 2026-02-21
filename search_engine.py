@@ -5,6 +5,7 @@ and then manually edited to fit assignment specifications.
 
 import json
 import math
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -21,14 +22,10 @@ from config import (
     NGRAM_BOOST,
     PROXIMITY_BOOST,
     MAX_RESULTS,
-    WEB_HOST,
-    WEB_PORT,
-    DEBUG_MODE,
 )
 from utils import tokenize, stem, build_ngrams, log_idf
 
-from analytics_store import record_query_time
-import time
+from analytic_query import record_query_time
 
 # ----------------- LOAD METADATA & LEXICON -----------------
 
@@ -37,8 +34,17 @@ lexicon: Dict[str, dict] = {}
 
 def load_metadata():
     global doc_meta, lexicon
-    doc_meta = json.loads(Path(DOC_META_PATH).read_text(encoding="utf-8"))
-    lexicon = json.loads(Path(LEXICON_PATH).read_text(encoding="utf-8"))
+
+    steps = [
+        ("Loading document metadata", DOC_META_PATH),
+        ("Loading lexicon", LEXICON_PATH),
+    ]
+
+    for desc, path in steps:
+        if path == DOC_META_PATH:
+            doc_meta = json.loads(Path(DOC_META_PATH).read_text(encoding="utf-8"))
+        elif path == LEXICON_PATH:
+            lexicon = json.loads(Path(LEXICON_PATH).read_text(encoding="utf-8"))
 
 # ----------------- POSTINGS ACCESS -----------------
 
@@ -204,11 +210,10 @@ def compute_scores(query: str) -> List[Tuple[int, float]]:
 # ----------------- CLI INTERFACE -----------------
 
 def cli_loop():
-    load_metadata()
-    print("CLI Search Engine. Type 'quit' to exit.")
+    print("CLI Search Engine. Type \"/exit\" to exit.")
     while True:
         q = input("Query> ").strip()
-        if q.lower() == "quit":
+        if q.lower() == "/exit":
             break
 
         # Analytics [Begin]
@@ -225,6 +230,7 @@ def cli_loop():
             print(f"{rank}. {meta['url']} (score={score:.4f})")
 
 if __name__ == "__main__":
-    import sys
+    print("Starting search engine... (may take a few minutes)")
     load_metadata()
+    print("--------------------------------------------------------------------------------")
     cli_loop()

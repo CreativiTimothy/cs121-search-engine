@@ -4,10 +4,13 @@ and then manually edited to fit assignment specifications.
 """
 
 import json
-import os
 from pathlib import Path
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple
+
+from tqdm import tqdm
+
+import analytic_io
 
 from config import (
     DEV_ROOT,
@@ -25,6 +28,7 @@ from config import (
     PAGERANK_DAMPING,
     PAGERANK_ITERATIONS,
     ensure_dirs,
+    DELETE_PARTIALS_AFTER_MERGE,   # NEW CONFIG OPTION
 )
 
 from utils import (
@@ -37,7 +41,6 @@ from utils import (
     jaccard,
 )
 
-from analytics_store import record_indexing_stats
 import os
 
 # ============================================================
@@ -62,10 +65,13 @@ def detect_duplicates(
     shingle_index: Dict[str, List[int]],
     doc_shingles: Dict[int, Set[str]],
     duplicate_map: Dict[int, int],
-) -> bool:
+):
     """
     Detect exact and near-duplicate documents.
-    Returns True if this doc is a duplicate and should be skipped.
+    Returns:
+        ("exact", canonical_id) if exact duplicate
+        ("near", canonical_id) if near duplicate
+        None if unique
     """
 
     # ---------- Exact duplicate ----------
@@ -76,7 +82,7 @@ def detect_duplicates(
     if exact_key in duplicate_map:
         canonical = duplicate_map[exact_key]
         duplicate_map[doc_id] = canonical
-        return True
+        return ("exact", canonical)
     else:
         duplicate_map[exact_key] = doc_id
 
@@ -93,13 +99,13 @@ def detect_duplicates(
         sim = jaccard(shingles, doc_shingles[other])
         if sim >= NEAR_DUP_JACCARD_THRESHOLD:
             duplicate_map[doc_id] = other
-            return True
+            return ("near", other)
 
     # Update shingle index
     for sh in shingles:
         shingle_index.setdefault(sh, []).append(doc_id)
 
-    return False
+    return None
 
 
 # ============================================================
@@ -127,7 +133,6 @@ def add_links_to_graph(
                 continue
             target_url = href.split("#")[0]
         else:
-            # Relative URL → skip complex normalization
             continue
 
         if target_url not in url_to_id:
@@ -166,7 +171,7 @@ def write_partial_index(
 
 
 # ============================================================
-#  Merge Partial Index Files (Rewritten, Robust)
+#  Merge Partial Index Files
 # ============================================================
 
 def merge_partial_files(
@@ -176,23 +181,33 @@ def merge_partial_files(
     term_type: str,
 ):
     """
-    Robust multi-way merge:
+    Robust multi-way merge with progress bar:
     - Reads partial files in text mode
     - Writes final index in binary mode
     - Computes correct byte offsets
     - Skips malformed lines
     """
 
-    # Open partial files in TEXT mode
+    # Open partial files
     files = [p.open("r", encoding="utf-8") for p in partial_paths]
     buffers = [f.readline() for f in files]
 
-    # Open final index in BINARY mode
+    # Count total lines across all partials for progress bar
+    total_lines = 0
+    for p in partial_paths:
+        with p.open("r", encoding="utf-8") as f:
+            for _ in f:
+                total_lines += 1
+
+    # Progress bar for merging
+    pbar = tqdm(total=total_lines,
+                desc=f"Merging {term_type} partials",
+                unit="lines")
+
     with final_path.open("wb") as out:
         offset = 0
 
         while True:
-            # Collect current terms
             candidates = []
             for i, line in enumerate(buffers):
                 if not line or "\t" not in line:
@@ -208,7 +223,6 @@ def merge_partial_files(
 
             merged = {}
 
-            # Merge postings for smallest_term
             for i, line in enumerate(buffers):
                 if not line or "\t" not in line:
                     continue
@@ -221,6 +235,7 @@ def merge_partial_files(
                     postings = json.loads(rest.strip())
                 except Exception:
                     buffers[i] = files[i].readline()
+                    pbar.update(1)
                     continue
 
                 for doc_id_str, pdata in postings.items():
@@ -228,7 +243,6 @@ def merge_partial_files(
                     if doc_id not in merged:
                         merged[doc_id] = pdata
                     else:
-                        # Merge fields
                         for k, v in pdata.items():
                             if k == "positions":
                                 merged[doc_id].setdefault("positions", [])
@@ -239,14 +253,13 @@ def merge_partial_files(
                                 merged[doc_id][k] = merged[doc_id].get(k, False) or v
 
                 buffers[i] = files[i].readline()
+                pbar.update(1)
 
-            # Write merged line in BINARY mode
+            # Write merged line
             line_str = json.dumps(merged, separators=(",", ":"))
             out_line = f"{smallest_term}\t{line_str}\n".encode("utf-8")
-
             out.write(out_line)
 
-            # Record lexicon entry
             lexicon[smallest_term] = {
                 "file": str(final_path),
                 "offset": offset,
@@ -256,8 +269,23 @@ def merge_partial_files(
 
             offset += len(out_line)
 
+    pbar.close()
+
     for f in files:
         f.close()
+
+
+# ============================================================
+#  Delete partials (NEW)
+# ============================================================
+
+def delete_partials(partial_uni, partial_bi, partial_tri):
+    """Delete partial index files safely."""
+    for p in partial_uni + partial_bi + partial_tri:
+        try:
+            p.unlink()
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -313,8 +341,22 @@ def build_index():
     current_doc_id = 0
     part_id = 0
 
-    for page_path in walk_corpus(DEV_ROOT):
-        url, html = load_json(page_path).get("url", ""), load_json(page_path).get("content", "")
+    exact_dup_count = 0
+    near_dup_count = 0
+
+    # Pre-scan corpus for progress bar with ETA
+    all_files = list(walk_corpus(DEV_ROOT))
+    total_docs = len(all_files)
+
+    progress = tqdm(all_files,
+                    total=total_docs,
+                    desc="Indexing",
+                    unit="doc")
+
+    for page_path in progress:
+        page_data = load_json(page_path)
+        url = page_data.get("url", "")
+        html = page_data.get("content", "")
         if not url:
             continue
 
@@ -326,8 +368,25 @@ def build_index():
         full_tokens = fields["full_tokens"]
 
         # Duplicate detection
-        if detect_duplicates(doc_id, full_tokens, shingle_index, doc_shingles, duplicate_map):
-            doc_meta[doc_id] = {"url": url, "duplicate_of": duplicate_map[doc_id], "length": 0}
+        dup_result = detect_duplicates(doc_id, full_tokens, shingle_index, doc_shingles, duplicate_map)
+        if dup_result is not None:
+            dup_type, canonical = dup_result
+            if dup_type == "exact":
+                exact_dup_count += 1
+            else:
+                near_dup_count += 1
+
+            doc_meta[doc_id] = {
+                "url": url,
+                "duplicate_of": canonical,
+                "duplicate_type": dup_type,
+                "length": 0
+            }
+
+            progress.set_postfix({
+                "exact_dups": exact_dup_count,
+                "near_dups": near_dup_count
+            })
             continue
 
         # Stem tokens
@@ -371,7 +430,12 @@ def build_index():
         add_links_to_graph(doc_id, url, fields["anchor_links"], url_to_id, out_links)
 
         # Metadata
-        doc_meta[doc_id] = {"url": url, "duplicate_of": None, "length": len(stems)}
+        doc_meta[doc_id] = {
+            "url": url,
+            "duplicate_of": None,
+            "duplicate_type": None,
+            "length": len(stems)
+        }
 
         # Spill if needed
         if len(unigram) > MAX_TERMS_IN_MEMORY:
@@ -383,6 +447,11 @@ def build_index():
             unigram.clear()
             bigram.clear()
             trigram.clear()
+
+        progress.set_postfix({
+            "exact_dups": exact_dup_count,
+            "near_dups": near_dup_count
+        })
 
     # Final spill
     if unigram:
@@ -398,6 +467,13 @@ def build_index():
     merge_partial_files(partial_bi, BIGRAM_INDEX_PATH, lexicon, "bigram")
     merge_partial_files(partial_tri, TRIGRAM_INDEX_PATH, lexicon, "trigram")
 
+    # Delete partials if enabled
+    if DELETE_PARTIALS_AFTER_MERGE:
+        delete_partials(partial_uni, partial_bi, partial_tri)
+        print("Partial index files deleted (config enabled).")
+    else:
+        print("Partial index files retained (config disabled).")
+
     # PageRank
     pr = compute_pagerank(current_doc_id, out_links)
     for doc_id in doc_meta:
@@ -409,41 +485,10 @@ def build_index():
     save_json(DUPLICATE_MAP_PATH, duplicate_map)
 
     print("Indexing complete.")
-    print(f"Documents processed: {current_doc_id}")
     print(f"Final index files written to: {FINAL_INDEX_DIR}")
 
-    # ============================================================
-    #  Analytics [Begin]
-    # ============================================================
-
-    # Count unique tokens (unigrams only)
-    num_unique_tokens = sum(1 for term, meta in lexicon.items() if meta["type"] == "unigram")
-
-    # Count index size
-    index_size_bytes = 0
-    for root, _, files in os.walk("index_data"):
-        for f in files:
-            index_size_bytes += os.path.getsize(os.path.join(root, f))
-
-    index_size_kb = round(index_size_bytes / 1024, 2)
-
-    # Count duplicates
-    num_dups = sum(1 for doc_id, meta in doc_meta.items() if meta["duplicate_of"] is not None)
-    num_near_dups = num_dups  # if you want to separate exact vs near, track separately
-
-    record_indexing_stats(
-        num_docs=current_doc_id,
-        num_tokens=num_unique_tokens,
-        index_size_kb=index_size_kb,
-        num_dups=num_dups,
-        num_near_dups=num_near_dups
-    )
-
-    print("Analytics saved to analytics.json")
-
-    # ============================================================
-    #  Analytics [End]
-    # ============================================================
+    # Analytics
+    analytic_io.compute_analytic()
 
 
 if __name__ == "__main__":

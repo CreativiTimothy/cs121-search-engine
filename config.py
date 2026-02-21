@@ -36,6 +36,9 @@ TRIGRAM_INDEX_PATH = FINAL_INDEX_DIR / "trigram_index.txt"
 # **Spill threshold: when in-memory postings exceed this many distinct terms, flush to disk.**
 MAX_TERMS_IN_MEMORY = 100_000  # tune as needed
 
+# Delete partial index files after merging?
+DELETE_PARTIALS_AFTER_MERGE = True
+
 # **Near-duplicate detection parameters.**
 SHINGLE_SIZE = 5               # number of tokens per shingle
 NEAR_DUP_JACCARD_THRESHOLD = 0.9

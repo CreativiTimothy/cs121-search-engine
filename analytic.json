@@ -1,0 +1,25 @@
+{
+  "indexing": {
+    "num_document": 0,
+    "num_token_total": 0,
+    "num_token_unigram": 0,
+    "num_token_bigram": 0,
+    "num_token_trigram": 0,
+    "num_duplicate_total": 0,
+    "num_duplicate_exact": 0,
+    "num_duplicate_near": 0,
+    "index_size_kb_total_kb": 0,
+    "index_size_kb_unigram_index": 0,
+    "index_size_kb_bigram_index": 0,
+    "index_size_kb_size_trigram_index": 0,
+    "index_size_kb_doc_meta": 0,
+    "index_size_kb_duplicate": 0,
+    "index_size_kb_lexicon": 0
+  },
+  "search": {
+    "total_queries": 4,
+    "avg_query_time_ms": 243.06620002607815,
+    "max_query_time_ms": 513.3929000003263,
+    "min_query_time_ms": 2.1771000465378165
+  }
+}

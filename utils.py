@@ -5,14 +5,18 @@ and then manually edited to fit assignment specifications.
 
 import json
 import math
-import os
 import re
 from pathlib import Path
 from typing import List, Dict, Tuple, Set
 
 from bs4 import BeautifulSoup  # pip install beautifulsoup4
+from bs4 import XMLParsedAsHTMLWarning
+from bs4 import MarkupResemblesLocatorWarning
+import warnings
 from nltk.stem import PorterStemmer  # pip install nltk
 
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning) # HTML parsing is more time-efficient than XML parsing detection.
+warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning) # Prase data that happens to look like a URL.
 ps = PorterStemmer()
 
 # Simple alphanumeric tokenizer regex.

@@ -2,9 +2,10 @@
 Search engine with parsing and tokenization of HTML data from UCI subdomains.
 
 Python packages required (`pip install`):
-- `nltk` (text processing)
 - `beautifulsoup4` (parsing HTML)
 - `lxml` (parsing XML/HTML)
+- `nltk` (text processing)
+- `tqdm` (progress bar)
 - `flask` (web GUI)
 
 Required files/folders:
@@ -22,6 +23,6 @@ Run search engine (web; may take about 3-5 minutes to start):
 
 `python web_gui.py`
 
-Compute analytics without rebuilding the entire index (2-3 minutes to finish):
+Compute index analytics without rebuilding the entire index (2-3 minutes to finish):
 
-`python analytics_compute.py`
+`python analytic_index.py`
