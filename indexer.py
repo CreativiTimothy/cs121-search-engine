@@ -10,7 +10,7 @@ from typing import Dict, List, Set, Tuple
 
 from tqdm import tqdm
 
-import analytic_io
+import analytic_index
 
 from config import (
     DEV_ROOT,
@@ -488,7 +488,7 @@ def build_index():
     print(f"Final index files written to: {FINAL_INDEX_DIR}")
 
     # Analytics
-    analytic_io.compute_analytic()
+    analytic_index.compute_analytic()
 
 
 if __name__ == "__main__":
