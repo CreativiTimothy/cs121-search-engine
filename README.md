@@ -26,3 +26,9 @@ Run search engine (web; may take about 3-5 minutes to start):
 Compute index analytics without rebuilding the entire index (2-3 minutes to finish):
 
 `python analytic_index.py`
+
+# Student IDs 
+- Timothy Nguyen (32158000)
+- Julia Tija (38516512)
+- Nathan Zhang (67398161)
+- Emily Tom (31795064)
