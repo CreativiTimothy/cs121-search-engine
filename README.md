@@ -29,6 +29,6 @@ Compute index analytics without rebuilding the entire index (2-3 minutes to fini
 
 # Student IDs 
 - Timothy Nguyen (32158000)
-- Julia Tija (38516512)
+- Julia Tjia (38516512)
 - Nathan Zhang (67398161)
 - Emily Tom (31795064)
